@@ -1,0 +1,289 @@
+---
+select count (*) as cnt
+	, count (id_user) as cnt_reg
+	, count (distinct id_user) as cnt_user
+from skygame.users
+
+---
+select date_trunc ('month',reg_date) as mm
+	  ,count (*) as cnt_user
+from skygame.users
+group by mm
+order by mm
+
+---
+select date_trunc ('month', start_session) as mm
+	,count (*) as cnt_all
+	,sum (case when end_session-start_session > interval '5 minute' then 1.0 else 0.0 end) as cnt_signif
+	,sum (case when end_session-start_session > interval '5 minute' then 1.0 else 0.0 end)/count (*) as share_signif
+from skygame.game_sessions
+group by mm
+order by mm
+
+---
+select date_trunc ('month', start_session) as mm
+	,sum (case when end_session-start_session > interval '1 HOUR' then 1.0 else 0.0 end)/count (*) as share_long
+from skygame.game_sessions
+WHERE end_session- start_session > interval '5 minute'
+group by mm
+order by mm
+
+---
+select count (*) as cnt_ref
+	,count (distinct id_user) as cnt_user
+from skygame.referral
+
+select count (*) as cnt_ref
+	,count (distinct id_user) as cnt_user
+	,sum (ref_reg)/count (*) as share_ref
+from skygame.referral
+
+select id_user
+	,count (*) as cnt_ref
+	,sum (ref_reg)/count (*) as share_ref
+from skygame.referral
+group by id_user
+having count (*)>5 and sum (ref_reg)/count (*)>= 0.5
+
+---
+select date_trunc ('month', start_session) as mm
+	,avg (extract(epoch from end_session-start_session))/(60*60) as avg_len
+from skygame.game_sessions
+WHERE end_session- start_session > interval '5 minute'
+group by mm
+order by mm
+---
+select sum (case when end_session is null then 1 else 0 end) as cnt_problem
+	,sum (case when end_session is null then 1.0 else 0.0 end)/count (*) *100 as share_problem
+from skygame.game_sessions
+
+select u.dev_type	
+	,sum (case when gs.end_session is null and u.dev_type = 'ios' then 1.0 else 0.0 end)/count (case when u.dev_type = 'ios' then 1 else 0 end) *100 as share_ios
+	,sum (case when gs.end_session is null and u.dev_type = 'android' then 1.0 else 0.0 end)/count (case when u.dev_type = 'android' then 1 else 0 end) *100 as share_android
+from skygame.users u
+join skygame.game_sessions gs
+	on u.id_user= gs.id_user
+group by u.dev_type
+
+select u.dev_type	
+	,sum (case when gs.end_session is null and u.dev_type = 'ios' then 1.0 else 0.0 end)/(select count (*) from skygame.game_sessions where end_session is null)*100 as share_ios_problem
+	,sum (case when gs.end_session is null and u.dev_type = 'android' then 1.0 else 0.0 end)/(select count (*) from skygame.game_sessions where end_session is null)*100 as share_android_problem
+from skygame.users u
+join skygame.game_sessions gs
+	on u.id_user= gs.id_user
+group by u.dev_type
+
+---
+select date_trunc ('day', start_session) as day_vizit
+	,count (distinct id_user) as DAU
+from skygame.game_sessions
+group by day_vizit
+
+
+select date_trunc ('week', start_session) as week_vizit
+	,count (distinct id_user) as WAU
+from skygame.game_sessions
+group by week_vizit
+
+select date_trunc ('month', start_session) as month_vizit
+	,count (distinct id_user) as MAU
+from skygame.game_sessions
+group by month_vizit
+
+---
+select date_trunc ('month', dtime_pay) mm
+		,type 
+		,sum (cnt_buy * price) as revenue
+from skygame.monetary m
+	join skygame.item_list  i
+		on m.id_item_buy= i.id_item
+	join skygame.log_prices lp
+		on lp.id_item= i.id_item
+		and dtime_pay :: date >= valid_from
+		and dtime_pay :: date < COALESCE (valid_to, to_date( '3000-01-01','yyyy-mm-dd'))
+group by mm, type
+ORDER by type, mm
+
+---
+select date_trunc ('month', dtime_pay) mm
+		,avg (cnt_buy) as avg_cnt
+		,sum (cnt_buy * price) as revenue
+from skygame.monetary m
+	join skygame.item_list  i
+		on m.id_item_buy= i.id_item
+	join skygame.log_prices lp
+		on lp.id_item= i.id_item
+		and dtime_pay :: date >= valid_from
+		and dtime_pay :: date < COALESCE (valid_to, to_date( '3000-01-01','yyyy-mm-dd'))
+where name_item= 'Crystal'
+group by mm
+ORDER by mm
+
+---
+select *
+	   ,extract ('day' from ((select max (dtime_pay) from skygame.monetary)- mm))/30 as interv
+	   ,avg_rev/(extract ('day' from ((select max (dtime_pay) from skygame.monetary)- mm))/30) as avg_rev_per_month
+from (
+select date_trunc ('month', reg_date) mm
+		,sum (cnt_buy * price) as revenue
+		,count (DISTINCT u.id_user) as cnt
+		,sum (cnt_buy * price)/count (DISTINCT u.id_user) as avg_rev
+from skygame.monetary m
+	join skygame.log_prices lp
+		on lp.id_item= m.id_item_buy
+		and dtime_pay :: date >= valid_from
+		and dtime_pay :: date < COALESCE (valid_to, to_date( '3000-01-01','yyyy-mm-dd'))
+	join skygame.users u
+		on m.id_user= u.id_user
+where reg_date < (select max (dtime_pay) from skygame.monetary) - interval '1 month'
+group by mm
+ORDER by mm
+) t
+
+---
+select coalesce (sum (ref_reg),0)/count (distinct u.id_user) as K_factor 
+	   ,count (distinct u.id_user)/count (distinct date_trunc ('month',u.reg_date)) as avg_volume_coh
+       ,(count (distinct u.id_user)/count (distinct date_trunc ('month',u.reg_date)))* (coalesce (sum (ref_reg),0)/count (distinct u.id_user)) as exp_volume_coh 
+from skygame.users u
+left join skygame.referral r
+	on u.id_user=r.id_user
+
+---
+select case when reg_date between '2022-11-01' and '2022-12-31' then 1 else 0 end as flag_loyal
+	   ,avg (gs.end_session- gs.start_session) as avg_len
+from skygame.game_sessions gs
+left join skygame.users u
+	on gs.id_user= u.id_user
+where end_session- start_session > interval '5 minute'
+	and end_session is not null
+group by flag_loyal
+
+---
+with crit_invite as
+(select id_user
+	  ,count (*) as cnt_invate
+	  ,sum (ref_reg) as cnt_reg
+from skygame.referral
+group by id_user 
+having count (*) >=3
+	and sum (ref_reg) >=1
+)
+
+select date_trunc ('month', start_session) as mm
+	  ,count (distinct id_user) as cnt_user
+from skygame.game_sessions
+where id_user in (select id_user from crit_invite )
+group by mm
+order by mm
+-------
+
+with loyals as
+(select id_user
+	  ,count (*) as cnt_invate
+	  ,sum (ref_reg) as cnt_reg
+from skygame.referral
+group by id_user 
+having count (*) >=3
+	and sum (ref_reg) >=1
+)
+
+select date_trunc ('day', start_session) as days
+	  ,count (distinct id_user) as cnt_user
+from skygame.game_sessions
+where id_user in (select id_user from loyals)
+group by days
+order by days
+-----
+
+with loyals as
+(select id_user
+	  ,count (*) as cnt_invate
+	  ,sum (ref_reg) as cnt_reg
+from skygame.referral
+group by id_user 
+having count (*) >=3
+	and sum (ref_reg) >=1
+)
+
+select date_trunc ('week', start_session) as weeks
+	  ,count (distinct id_user) as cnt_user
+from skygame.game_sessions
+where id_user in (select id_user from loyals)
+group by weeks
+order by weeks
+
+---
+with crit_1000 as
+(select id_user
+	  ,sum(cnt_buy*price) as revenue
+from skygame.monetary m
+join skygame.log_prices l
+	on m.id_item_buy= l.id_item
+	and dtime_pay > valid_from and dtime_pay <= coalesce (valid_to, '3000-01-01')
+group by id_user
+having sum(cnt_buy*price) >1000
+)
+select date_trunc ('month', start_session) as mm
+	  ,count (distinct id_user) as cnt_user
+from skygame.game_sessions
+where id_user in (select id_user from crit_1000)
+group by mm
+order by mm
+
+---
+with crit_invite as
+(select id_user
+	  ,count (*) as cnt_invate
+	  ,sum (ref_reg) as cnt_reg
+from skygame.referral
+group by id_user 
+having count (*) >=3
+	and sum (ref_reg) >=1
+),
+crit_1000 as
+(select id_user
+	  ,sum(cnt_buy*price) as revenue
+from skygame.monetary m
+join skygame.log_prices l
+	on m.id_item_buy= l.id_item
+	and dtime_pay > valid_from and dtime_pay <= coalesce (valid_to, '3000-01-01')
+group by id_user
+having sum(cnt_buy*price) >1000
+)
+select date_trunc ('month', start_session) as mm
+	  ,count (distinct id_user) as cnt_user
+from skygame.game_sessions
+where id_user in (select id_user from crit_invite)
+	  and id_user in (select id_user from crit_1000)
+group by mm
+order by mm
+
+---
+
+with crit_invite as
+(select id_user
+	  ,count (*) as cnt_invate
+	  ,sum (ref_reg) as cnt_reg
+from skygame.referral
+group by id_user 
+having count (*) >=3
+	and sum (ref_reg) >=1
+),
+crit_1000 as
+(select id_user
+	  ,sum(cnt_buy*price) as revenue
+from skygame.monetary m
+join skygame.log_prices l
+	on m.id_item_buy= l.id_item
+	and dtime_pay > valid_from and dtime_pay <= coalesce (valid_to, '3000-01-01')
+group by id_user
+having sum(cnt_buy*price) >1000
+)
+select date_trunc ('month', start_session) as mm
+	  ,count (distinct id_user) as cnt_user
+from skygame.game_sessions
+where id_user in (select id_user from crit_invite)
+	  or id_user in (select id_user from crit_1000)
+group by mm
+order by mm
+
